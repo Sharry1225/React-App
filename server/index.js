@@ -1,75 +1,75 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import db from "./db.js";
+import { pool } from "./db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import "dotenv/config";
+
 import { sendTaskEmail } from "./email.js";
+
 const app = express();
-app.use(cors());            // allow the React app to call this server
-app.use(express.json());    // let the server read JSON sent from React
+app.use(cors());
+app.use(express.json());
 
-
+const JWT_SECRET = process.env.JWT_SECRET;   // now from .env
 
 // Gatekeeper: verify the token on protected routes
 function authenticate(req, res, next) {
-  const header = req.headers.authorization;           // "Bearer <token>"
+  const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "Not logged in" });
-
-  const token = header.split(" ")[1];                 // grab the token part
+  const token = header.split(" ")[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);    // valid & untampered?
-    req.user = decoded;                               // attach { id, name } to the request
-    next();                                           // allow the route to run
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
   } catch {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
 }
-const JWT_SECRET = "antraajaal-secret-key-change-this-later";
-// When React asks for GET /api/tasks, send back the tasks list
-app.get("/api/tasks", authenticate, (req, res) => {
-  const tasks = db.prepare("SELECT * FROM tasks").all();
-  res.json(tasks);
+
+// GET all tasks
+app.get("/api/tasks", authenticate, async (req, res) => {
+  const result = await pool.query("SELECT * FROM tasks ORDER BY id DESC");
+  res.json(result.rows);
 });
 
-app.get("/api/users", authenticate, (req, res) => {
-  const users = db.prepare("SELECT * FROM users").all();
-  res.json(users);
+// GET all users
+app.get("/api/users", authenticate, async (req, res) => {
+  const result = await pool.query("SELECT id, name, email, role FROM users");
+  res.json(result.rows);
 });
 
-
-// Create a new task: React sends the task data, we save it to the database
-app.post("/api/tasks", authenticate, (req, res) => {
+// CREATE a task
+app.post("/api/tasks", authenticate, async (req, res) => {
   const { title, who, prio, status, due } = req.body;
-  const created_by = req.user.id;   // ← from the verified token, NOT the browser
+  const created_by = req.user.id;
 
-  const result = db
-    .prepare("INSERT INTO tasks (title, who, prio, status, due, created_by) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(title, who, prio, status, due, created_by);
+  const result = await pool.query(
+    "INSERT INTO tasks (title, who, prio, status, due, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+    [title, who, prio, status, due, created_by]
+  );
+  const newTask = result.rows[0];
 
-  const newTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(result.lastInsertRowid);
-
-  const assignee = db.prepare("SELECT name, email FROM users WHERE id = ?").get(who);
-  if (assignee?.email) {
-    sendTaskEmail(assignee.email, title, req.user.name);
+  const assignee = await pool.query("SELECT name, email FROM users WHERE id = $1", [who]);
+  if (assignee.rows[0]?.email) {
+    sendTaskEmail(assignee.rows[0].email, title, req.user.name);
   }
   res.json(newTask);
 });
 
-app.put("/api/tasks/:id", authenticate, (req, res) => {
+// UPDATE a task
+app.put("/api/tasks/:id", authenticate, async (req, res) => {
   const { id } = req.params;
   const { title, who, prio, due, status } = req.body;
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
 
+  const found = await pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
+  const task = found.rows[0];
   if (!task) return res.status(404).json({ error: "Task not found" });
 
-  // Status-only updates (the checkbox) — assignee, creator, or admin
   const canUpdateStatus = task.who === req.user.id || task.created_by === req.user.id || req.user.role === "admin";
-  // Full edits — only creator or admin
   const canEdit = task.created_by === req.user.id || req.user.role === "admin";
-
-  // If they're changing more than just status, require edit permission
   const isFullEdit = title !== undefined;
+
   if (isFullEdit && !canEdit) {
     return res.status(403).json({ error: "You don't have permission to edit this task" });
   }
@@ -77,124 +77,105 @@ app.put("/api/tasks/:id", authenticate, (req, res) => {
     return res.status(403).json({ error: "You don't have permission to update this task" });
   }
 
-  // Use new values where provided, fall back to existing ones
-  db.prepare("UPDATE tasks SET title = ?, who = ?, prio = ?, due = ?, status = ? WHERE id = ?")
-    .run(
-      title ?? task.title,
-      who ?? task.who,
-      prio ?? task.prio,
-      due ?? task.due,
-      status ?? task.status,
-      id
-    );
-
-  res.json(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+  const updated = await pool.query(
+    "UPDATE tasks SET title=$1, who=$2, prio=$3, due=$4, status=$5 WHERE id=$6 RETURNING *",
+    [title ?? task.title, who ?? task.who, prio ?? task.prio, due ?? task.due, status ?? task.status, id]
+  );
+  res.json(updated.rows[0]);
 });
 
 // DELETE a task
-
-app.delete("/api/tasks/:id", authenticate, (req, res) => {
+app.delete("/api/tasks/:id", authenticate, async (req, res) => {
   const { id } = req.params;
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-
+  const found = await pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
+  const task = found.rows[0];
   if (!task) return res.status(404).json({ error: "Task not found" });
 
-  // Rule: only the creator OR an admin may delete
   const isCreator = task.created_by === req.user.id;
   const isAdmin = req.user.role === "admin";
-
   if (!isCreator && !isAdmin) {
     return res.status(403).json({ error: "You don't have permission to delete this task" });
   }
 
-  db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+  await pool.query("DELETE FROM tasks WHERE id = $1", [id]);
   res.json({ deleted: Number(id) });
 });
 
-app.get("/api/meetings", authenticate, (req, res) => {
-  const meetings = db.prepare("SELECT * FROM meetings").all();
-  res.json(meetings);
+// GET meetings
+app.get("/api/meetings", authenticate, async (req, res) => {
+  const result = await pool.query("SELECT * FROM meetings ORDER BY id DESC");
+  res.json(result.rows);
 });
 
-
-app.post("/api/meetings", authenticate, (req, res) => {
-  const { title, time, who, link } = req.body;   // read what React sent
-
-  const result = db
-    .prepare("INSERT INTO meetings (title, time, who, link) VALUES (?, ?, ?, ?)")
-    .run(title, time, who, link);                // save it
-
-  // Send the newly-created task back, including its fresh database id
-  const meetings = db
-    .prepare("SELECT * FROM meetings WHERE id = ?")
-    .get(result.lastInsertRowid);
-
-  res.json(meetings);
+// CREATE meeting
+app.post("/api/meetings", authenticate, async (req, res) => {
+  const { title, time, who, link } = req.body;
+  const result = await pool.query(
+    "INSERT INTO meetings (title, time, who, link) VALUES ($1,$2,$3,$4) RETURNING *",
+    [title, time, who, link]
+  );
+  res.json(result.rows[0]);
 });
 
-// Signup routes
+// UPDATE a user (admin only)
+app.put("/api/users/:id", authenticate, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  const { id } = req.params;
+  const { name, role } = req.body;
 
-// SIGN UP — create a new account
+  const found = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+  const target = found.rows[0];
+  if (!target) return res.status(404).json({ error: "User not found" });
+
+  const updated = await pool.query(
+    "UPDATE users SET name=$1, role=$2 WHERE id=$3 RETURNING id, name, email, role",
+    [name ?? target.name, role ?? target.role, id]
+  );
+  res.json(updated.rows[0]);
+});
+
+// SIGN UP
 app.post("/api/signup", async (req, res) => {
   const { name, email, password } = req.body;
-
-  // 1. Basic check: all fields present
   if (!name || !email || !password) {
     return res.status(400).json({ error: "All fields are required" });
   }
-
   try {
-    // 2. Hash the password before storing it — never store plain text
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 3. Save the new user
-    const result = db
-      .prepare("INSERT INTO users (name, email, password) VALUES (?, ?, ?)")
-      .run(name, email, hashedPassword);
-
-    // 4. Send back the new user — but NOT the password
-    res.json({ id: result.lastInsertRowid, name, email });
+    const result = await pool.query(
+      "INSERT INTO users (name, email, password) VALUES ($1,$2,$3) RETURNING id, name, email",
+      [name, email, hashedPassword]
+    );
+    res.json(result.rows[0]);
   } catch (err) {
-    // The UNIQUE rule on email throws if the email already exists
-    if (err.message.includes("UNIQUE")) {
+    if (err.code === "23505") {   // Postgres unique-violation code
       return res.status(400).json({ error: "That email is already registered" });
     }
     res.status(500).json({ error: "Could not create account" });
   }
 });
 
-// Login
-
-// LOG IN — verify credentials, return a token
+// LOG IN
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
+  const found = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+  const user = found.rows[0];
+  if (!user) return res.status(400).json({ error: "Invalid email or password" });
 
-  // 1. Find the user by email
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-  if (!user) {
-    return res.status(400).json({ error: "Invalid email or password" });
-  }
-
-  // 2. Compare the typed password against the stored hash
   const match = await bcrypt.compare(password, user.password);
-  if (!match) {
-    return res.status(400).json({ error: "Invalid email or password" });
-  }
+  if (!match) return res.status(400).json({ error: "Invalid email or password" });
 
-  // 3. Success — create a signed token holding the user's id and name
   const token = jwt.sign(
-    { id: user.id, name: user.name, role: user.role },   // ← add role
+    { id: user.id, name: user.name, role: user.role },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
-
-  // 4. Send back the token and safe user info (never the password)
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
 
-
-// Start the server on port 4000
-app.listen(4000, () => {
-  console.log("✅ Backend API running on http://localhost:4000");
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`✅ Backend API running on port ${PORT}`);
 });
-

@@ -13,7 +13,8 @@ import {
 
 function api(path, options = {}) {
   const token = localStorage.getItem("token");
-  return fetch(`http://localhost:4000${path}`, {
+  const API = import.meta.env.VITE_API_URL || "http://localhost:4000";   // ← add this
+  return fetch(`${API}${path}`, {                                        // ← use it here
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -319,13 +320,13 @@ function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-
+  const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
   const submit = () => {
     setError("");
     const url = isSignup ? "/api/signup" : "/api/login";
     const body = isSignup ? { name, email, password } : { email, password };
 
-    fetch(`http://localhost:4000${url}`, {
+    fetch(`${API}${url}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -401,7 +402,7 @@ export default function App() {
       .catch((err) => console.error("Could not load users:", err));
   }, [user]);
 
-  
+
 
   const handleLogin = (token, userData) => {
     localStorage.setItem("token", token);              // ← token FIRST
@@ -491,8 +492,10 @@ export default function App() {
   );
 }
 
-const ActiveUser = ({ user }) => {
+const ActiveUser = ({ user, currentUser }) => {
   const [users, setUsers] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const isAdmin = currentUser?.role === "admin";
   useEffect(() => {
     if (!user) return;
     const token = localStorage.getItem("token");
@@ -502,6 +505,23 @@ const ActiveUser = ({ user }) => {
       .then((data) => setUsers(data))
       .catch((err) => console.error("Could not load users:", err));
   }, [user]);
+  const saveUser = () => {
+    api(`/api/users/${editing.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: editing.name, role: editing.role }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to update user");
+        return res.json();
+      })
+      .then((updatedUser) => {
+        setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+        setEditing(null);   // close the modal
+      })
+      .catch((err) => console.error("Could not update user:", err));
+  };
+
+
   return (
     <div className="aj-pad">
       {users.length === 0 ? (
@@ -515,10 +535,44 @@ const ActiveUser = ({ user }) => {
                 <td style={{ fontWeight: 600 }}>{u.name}</td>
                 <td>{u.email}</td>
                 <td><span className="aj-chip" style={{ background: "var(--surface)", color: "var(--muted)" }}>{u.role}</span></td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  {/* {(isAdmin || u.id === currentUser?.id) && ( */}
+                  <>
+                    <button onClick={() => setEditing(u)} title="Edit" style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--muted)", marginRight: 4 }}>
+                      <SlidersHorizontal size={15} />
+                    </button>
+                  </>
+                  {/* )}  */}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+      {editing && (
+        <div onClick={() => setEditing(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,23,28,.5)", display: "grid", placeItems: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} className="aj-card aj-pad" style={{ width: 420, padding: 24 }}>
+            <h3 style={{ marginBottom: 16 }}>Edit user</h3>
+
+            <label style={{ fontSize: 12, color: "var(--muted)" }}>Name</label>
+            <input className="aj-input" style={{ width: "100%", marginBottom: 12 }}
+              value={editing.name}
+              onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+
+            <label style={{ fontSize: 12, color: "var(--muted)" }}>Role</label>
+            <select className="aj-select" style={{ width: "100%", marginBottom: 20 }}
+              value={editing.role}
+              onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
+              <option value="admin">admin</option>
+              <option value="member">member</option>
+            </select>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="aj-btn ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="aj-btn" onClick={saveUser}>Save changes</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -656,14 +710,6 @@ function Tasks({ users, currentUser }) {
       .then((data) => setTasks(data))
       .catch((err) => console.error("Could not load tasks:", err));
   }, []);
-
-  // useEffect(() => {
-  //   if (!users) return;   // only fetch once logged in
-  //   api("/api/users")
-  //     .then((res) => res.json())
-  //     .then((data) => setUsers(data))
-  //     .catch((err) => console.error("Could not load users:", err));
-  // }, [users]);
 
   const add = () => {
     if (!text.trim()) return;
@@ -974,8 +1020,9 @@ function Fields() {
 /* ═══════════════ MEETINGS ═══════════════ */
 function Meetings() {
   const [meets, setMeets] = useState([]);
+  const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
   useEffect(() => {
-    fetch("http://localhost:4000/api/meetings")
+    fetch(`${API}/api/meetings`)
       .then((res) => res.json())
       .then((data) => setMeets(data))
       .catch((err) => console.error("Could not load meetings:", err));
@@ -987,7 +1034,7 @@ function Meetings() {
     const t = prompt("Meeting title:");
     if (!t) return;
 
-    fetch("http://localhost:4000/api/meetings", {
+    fetch(`${API}/api/meetings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: t, time: "Aug 12 · 2:00 PM", who: 1, link: 1 }),
