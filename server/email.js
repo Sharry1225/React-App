@@ -5,7 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export async function sendTaskEmail(to, taskTitle, assignerName) {
   try {
     await resend.emails.send({
-      from: "Antraajaal <onboarding@resend.dev>",
+      from: "Antraajaal <notifications@send.antraajaal.com>",
       to,
       subject: `New task assigned: ${taskTitle}`,
       html: `
