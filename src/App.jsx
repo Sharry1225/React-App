@@ -299,6 +299,7 @@ const MODULES = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, color: "#0E9384", desc: "Your command center" },
   { key: "tasks", label: "Tasks", icon: CheckSquare, color: "#0E9384", desc: "Organize & track work" },
   { key: "activeusers", label: "Active Users", icon: CheckSquare, color: "#0E9384", desc: "View and manage active users" },
+  { key: "projects", label: "Projects", icon: KanbanSquare, color: "#6D5AE0", desc: "Organize tasks by project" },
   { key: "kanban", label: "Kanban Boards", icon: KanbanSquare, color: "#6D5AE0", desc: "Visualize workflow" },
   { key: "automations", label: "Workflows", icon: Zap, color: "#E0912B", desc: "Trigger → action rules", hot: true },
   { key: "fields", label: "Custom Fields", icon: SlidersHorizontal, color: "#2A9D8F", desc: "Tailor your records" },
@@ -476,6 +477,7 @@ export default function App() {
           {active === "dashboard" && <Dashboard go={setActive} />}
           {active === "tasks" && <Tasks users={users} currentUser={user} />}
           {active === "activeusers" && <ActiveUser user={user} />}
+          {active === "projects" && <Projects currentUser={user} />}
           {active === "kanban" && <Kanban />}
           {active === "automations" && <Automations />}
           {active === "fields" && <Fields />}
@@ -686,6 +688,85 @@ function Dashboard({ go }) {
   );
 }
 
+function Projects({ currentUser }) {
+  const [projects, setProjects] = useState([]);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const isAdmin = currentUser?.role === "admin";
+
+  useEffect(() => {
+    api("/api/projects")
+      .then((res) => res.json())
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Could not load projects:", err));
+  }, []);
+
+  const addProject = () => {
+    if (!name.trim()) return;
+    api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), description: desc.trim() }),
+    })
+      .then((res) => res.json())
+      .then((saved) => {
+        if (saved.error) return console.error(saved.error);
+        setProjects([saved, ...projects]);
+        setName(""); setDesc("");
+      })
+      .catch((err) => console.error("Could not create project:", err));
+  };
+
+  const removeProject = (id) => {
+    api(`/api/projects/${id}`, { method: "DELETE" })
+      .then((res) => res.json())
+      .then(() => setProjects(projects.filter((p) => p.id !== id)))
+      .catch((err) => console.error("Could not delete project:", err));
+  };
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <Head title="Projects" sub="Organize tasks by the project they belong to." />
+
+      {isAdmin && (
+        <div className="aj-card aj-pad" style={{ marginBottom: 16 }}>
+          <div className="aj-row" style={{ marginBottom: 10 }}>
+            <input className="aj-input" style={{ flex: 1 }} placeholder="Project name…"
+              value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="aj-row">
+            <input className="aj-input" style={{ flex: 1 }} placeholder="Short description (optional)…"
+              value={desc} onChange={(e) => setDesc(e.target.value)} />
+            <button className="aj-btn" onClick={addProject}><Plus size={15} />Add project</button>
+          </div>
+        </div>
+      )}
+
+      <div className="aj-grid" style={{ gap: 12 }}>
+        {projects.length === 0 ? (
+          <div className="aj-empty">No projects yet.{isAdmin ? " Create one above." : ""}</div>
+        ) : (
+          projects.map((p) => (
+            <div key={p.id} className="aj-card" style={{ padding: 18, display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 11, background: "var(--teal-soft)", color: "var(--teal-deep)", display: "grid", placeItems: "center", fontFamily: "'Bricolage Grotesque'", fontWeight: 700 }}>
+                {p.name.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
+                {p.description && <div className="aj-muted" style={{ fontSize: 13, marginTop: 2 }}>{p.description}</div>}
+              </div>
+              {isAdmin && (
+                <button onClick={() => removeProject(p.id)} style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--faint)" }}>
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════ TASKS ═══════════════ */
 
 function Tasks({ users, currentUser }) {
@@ -695,6 +776,8 @@ function Tasks({ users, currentUser }) {
   const [text, setText] = useState("");
   const [owner, setOwner] = useState(1);
   const [date, setDate] = useState(() => upcomingDates()[0].value);
+  const [projects, setProjects] = useState([]);          // the list
+  const [projectId, setProjectId] = useState("");        // the chosen one's id
   const [priority, setPriority] = useState("Med");
   // const [users, setUsers] = useState([]);
   const isAdmin = currentUser?.role === "admin";
@@ -703,6 +786,11 @@ function Tasks({ users, currentUser }) {
   const visibleTasks = isAdmin ? tasks : tasks.filter((t) => t.who === currentUser?.id);
   const filtered = visibleTasks.filter((t) => filter === "All" || t.status === filter);
   const [confirmDelete, setConfirmDelete] = useState(null);   // task pending deletion, or null
+
+  const projectName = (id) => {
+    const p = projects.find((pr) => pr.id === id);
+    return p ? p.name : null;
+  };
   // Fetch tasks from the backend once, when the page first loads
   useEffect(() => {
     api("/api/tasks")
@@ -711,12 +799,22 @@ function Tasks({ users, currentUser }) {
       .catch((err) => console.error("Could not load tasks:", err));
   }, []);
 
+  useEffect(() => {
+    api("/api/projects")
+      .then((res) => res.json())
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .catch((err) => console.error("Could not load projects:", err));
+  }, []);
+
   const add = () => {
     if (!text.trim()) return;
 
     api("/api/tasks", {
       method: "POST",
-      body: JSON.stringify({ title: text.trim(), who: owner, prio: priority, status: "To do", due: date }),
+      body: JSON.stringify({
+        title: text.trim(), who: owner, prio: priority, status: "To do", due: date,
+        project_id: projectId ? Number(projectId) : null,   // ← the chosen project
+      }),
     })
       .then((res) => res.json())
       .then((saved) => setTasks([saved, ...tasks]))
@@ -775,6 +873,13 @@ function Tasks({ users, currentUser }) {
                 <option key={member.id} value={member.id}>{member.name}</option>
               ))}
             </select>
+            <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Project:</label>
+            <select className="aj-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Select a project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
             <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Due Date:</label>
             <select className="aj-select" value={date} onChange={(e) => setDate(e.target.value)}>
               {upcomingDates().map((d) => (
@@ -806,6 +911,7 @@ function Tasks({ users, currentUser }) {
               <th>Priority</th>
               <th>Status</th>
               <th>Due</th>
+              <th>Project Name</th>
             </tr>
           </thead>
           <tbody>
@@ -819,6 +925,16 @@ function Tasks({ users, currentUser }) {
                   <td><span className="aj-chip" style={{ color: pc.c, background: pc.b }}>{t.prio}</span></td>
                   <td><span className="aj-chip" style={{ color: sc.c, background: sc.b }}>{t.status}</span></td>
                   <td className="mono aj-muted" style={{ fontSize: 12 }}>{t.due}</td>
+                  <td>
+                    {projectName(t.project_id) ? (
+                      <span className="aj-chip" style={{ color: "var(--violet)", background: "#EDEAFB" }}>
+                        {projectName(t.project_id)}
+                      </span>
+                    ) : (
+                      <span className="aj-muted" style={{ fontSize: 12 }}>—</span>
+                    )}
+                  </td>
+
                   {/* <td style={{ textAlign: "right" }}>
                     {isAdmin && (
                       <button onClick={() => remove(t.id)} style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--faint)" }}><X size={15} /></button>

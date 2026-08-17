@@ -41,12 +41,12 @@ app.get("/api/users", authenticate, async (req, res) => {
 
 // CREATE a task
 app.post("/api/tasks", authenticate, async (req, res) => {
-  const { title, who, prio, status, due } = req.body;
+  const { title, who, prio, status, due, project_id } = req.body;   // ← add project_id
   const created_by = req.user.id;
 
   const result = await pool.query(
-    "INSERT INTO tasks (title, who, prio, status, due, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
-    [title, who, prio, status, due, created_by]
+    "INSERT INTO tasks (title, who, prio, status, due, created_by, project_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+    [title, who, prio, status, due, created_by, project_id]   // ← add project_id
   );
   const newTask = result.rows[0];
 
@@ -56,6 +56,22 @@ app.post("/api/tasks", authenticate, async (req, res) => {
   }
   res.json(newTask);
 });
+// app.post("/api/tasks", authenticate, async (req, res) => {
+//   const { title, who, prio, status, due } = req.body;
+//   const created_by = req.user.id;
+
+//   const result = await pool.query(
+//     "INSERT INTO tasks (title, who, prio, status, due, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+//     [title, who, prio, status, due, created_by]
+//   );
+//   const newTask = result.rows[0];
+
+//   const assignee = await pool.query("SELECT name, email FROM users WHERE id = $1", [who]);
+//   if (assignee.rows[0]?.email) {
+//     sendTaskEmail(assignee.rows[0].email, title, req.user.name);
+//   }
+//   res.json(newTask);
+// });
 
 // UPDATE a task
 app.put("/api/tasks/:id", authenticate, async (req, res) => {
@@ -134,6 +150,40 @@ app.put("/api/users/:id", authenticate, async (req, res) => {
     [name ?? target.name, role ?? target.role, id]
   );
   res.json(updated.rows[0]);
+});
+
+
+// GET all projects
+app.get("/api/projects", authenticate, async (req, res) => {
+  const result = await pool.query("SELECT * FROM projects ORDER BY id DESC");
+  res.json(result.rows);
+});
+
+// CREATE a project (admin only)
+app.post("/api/projects", authenticate, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: "Project name is required" });
+
+  const result = await pool.query(
+    "INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING *",
+    [name, description, req.user.id]
+  );
+  res.json(result.rows[0]);
+});
+
+// DELETE a project (admin only)
+app.delete("/api/projects/:id", authenticate, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  const { id } = req.params;
+  // Unlink tasks from this project first, so they aren't orphaned
+  await pool.query("UPDATE tasks SET project_id = NULL WHERE project_id = $1", [id]);
+  await pool.query("DELETE FROM projects WHERE id = $1", [id]);
+  res.json({ deleted: Number(id) });
 });
 
 // SIGN UP

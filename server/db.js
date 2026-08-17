@@ -31,6 +31,7 @@ async function init() {
       created_by INTEGER
     )
   `);
+ 
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS meetings (
@@ -42,6 +43,20 @@ async function init() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS projects (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_by  INTEGER,
+    created_at  TIMESTAMP DEFAULT NOW()
+
+    )
+  `);
+ // Link tasks to projects (safe if already added)
+  try {
+    await pool.query("ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)");
+  } catch (e) { /* column already exists */ }
   console.log("✅ Postgres tables ready");
 }
 
