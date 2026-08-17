@@ -860,7 +860,7 @@ function Tasks({ users, currentUser }) {
       .catch((err) => console.error("Could not save edit:", err));
   };
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+    <div style={{ maxWidth: 15000, margin: "0 auto" }}>
       <Head title="Tasks" sub="Organize and track everything the team is working on." />
       {isAdmin && (
         <div className="aj-card aj-pad" style={{ marginBottom: 16 }}>
