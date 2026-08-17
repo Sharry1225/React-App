@@ -1,10 +1,10 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef } from "react";
 import { useEffect } from "react";
 import {
   LayoutDashboard, CheckSquare, KanbanSquare, Zap, SlidersHorizontal,
   CalendarDays, MessageSquare, Clock, UserCheck, BarChart3, Trophy, Plug,
   Search, Bell, Plus, Play, Pause, Check, ChevronRight, ChevronLeft, Flame,
-  X, Link2, Users, Video, Send, ArrowRight, TrendingUp, Circle, Dot
+  X, Link2, Users, Video, Send, ArrowRight, TrendingUp, Circle
 } from "lucide-react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis,
@@ -35,6 +35,14 @@ function upcomingDates(count = 14) {
     out.push({ value: label, label: i === 0 ? `Today (${label})` : label });
   }
   return out;
+}
+
+function formatTaskDue(value) {
+  if (!value) return "No due date";
+  const parsed = new Date(`${value}, ${new Date().getFullYear()}`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -179,9 +187,85 @@ const Styles = () => (
 
     .aj-timer { font-family:'Bricolage Grotesque'; font-size:52px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
 
+    /* ── TASKS ───────────────────────────────────────────────── */
+    .aj-tasks { max-width:1280px; margin:0 auto; padding-bottom:24px; }
+    .aj-tasks-head { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:22px; }
+    .aj-tasks-kicker { color:var(--teal); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
+    .aj-tasks-title { font-size:30px; line-height:1.05; }
+    .aj-tasks-sub { color:var(--muted); font-size:13.5px; margin:7px 0 0; }
+    .aj-task-add { box-shadow:0 8px 18px rgba(14,147,132,.2); white-space:nowrap; }
+    .aj-task-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+    .aj-task-stat { padding:16px 18px; position:relative; overflow:hidden; min-height:108px; }
+    .aj-task-stat:after { content:""; position:absolute; width:74px; height:74px; border-radius:50%; right:-20px; bottom:-28px; background:var(--task-tone-soft); }
+    .aj-task-stat-label { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:12px; font-weight:600; }
+    .aj-task-stat-icon { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; color:var(--task-tone); background:var(--task-tone-soft); }
+    .aj-task-stat-number { font-family:'Bricolage Grotesque',sans-serif; font-size:30px; line-height:1; margin-top:16px; }
+    .aj-task-stat-note { font-size:11px; color:var(--muted); margin-top:6px; }
+    .aj-task-toolbar { padding:14px; margin-bottom:16px; }
+    .aj-task-search { display:flex; align-items:center; gap:8px; min-width:230px; flex:1 1 260px; border:1px solid var(--border); border-radius:9px; padding:9px 11px; color:var(--muted); background:var(--surface); }
+    .aj-task-search input { min-width:0; width:100%; border:0; outline:0; background:transparent; color:var(--text); font:inherit; font-size:13px; }
+    .aj-task-filters { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+    .aj-task-filter { min-width:124px; flex:1 1 124px; }
+    .aj-task-tabs { display:flex; align-items:center; gap:5px; margin-top:14px; padding-top:13px; border-top:1px solid var(--border); overflow-x:auto; }
+    .aj-task-tab { border:0; border-radius:8px; padding:7px 11px; color:var(--muted); background:transparent; font:600 12px inherit; cursor:pointer; white-space:nowrap; }
+    .aj-task-tab:hover { background:var(--surface); color:var(--text); }
+    .aj-task-tab.on { background:var(--teal-soft); color:var(--teal-deep); }
+    .aj-task-tab-count { margin-left:5px; opacity:.75; }
+    .aj-task-table-card { overflow:hidden; box-shadow:0 10px 28px rgba(18,23,28,.035); }
+    .aj-task-table-wrap { overflow-x:auto; }
+    .aj-task-table { min-width:850px; width:100%; border-collapse:separate; border-spacing:0; }
+    .aj-task-table th { background:#FAFBF9; color:var(--faint); font-size:10.5px; font-weight:700; letter-spacing:.08em; text-align:left; text-transform:uppercase; padding:13px 18px; border-bottom:1px solid var(--border); }
+    .aj-task-table td { padding:15px 18px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+    .aj-task-table tbody tr { transition:background .14s; }
+    .aj-task-table tbody tr:hover { background:#FBFCFA; }
+    .aj-task-table tbody tr:last-child td { border-bottom:0; }
+    .aj-task-name { display:flex; align-items:center; gap:11px; font-weight:600; min-width:240px; }
+    .aj-task-check { width:21px; height:21px; flex:0 0 21px; display:grid; place-items:center; border-radius:7px; border:1.5px solid var(--border-strong); background:transparent; cursor:pointer; transition:.14s; }
+    .aj-task-check:hover { border-color:var(--teal); background:var(--teal-soft); }
+    .aj-task-check.done { border-color:var(--teal); background:var(--teal); }
+    .aj-task-name.done { color:var(--muted); text-decoration:line-through; }
+    .aj-task-owner { display:flex; align-items:center; gap:8px; min-width:126px; }
+    .aj-task-owner-name { font-size:12.5px; font-weight:600; white-space:nowrap; }
+    .aj-task-project { color:var(--violet); background:#EDEAFB; }
+    .aj-task-actions { display:flex; justify-content:flex-end; gap:3px; }
+    .aj-task-action { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; }
+    .aj-task-action:hover { color:var(--text); background:var(--surface); }
+    .aj-task-action.delete:hover { color:var(--rose); background:var(--rose-soft); }
+    .aj-task-empty { display:grid; justify-items:center; gap:9px; padding:54px 24px; text-align:center; }
+    .aj-task-empty-icon { width:46px; height:46px; border-radius:14px; display:grid; place-items:center; color:var(--teal); background:var(--teal-soft); }
+    .aj-task-empty h4 { font-size:16px; }
+    .aj-task-empty p { max-width:330px; margin:0 0 6px; color:var(--muted); font-size:13px; line-height:1.5; }
+    .aj-modal-backdrop { position:fixed; inset:0; padding:20px; background:rgba(18,23,28,.5); display:grid; place-items:center; z-index:50; }
+    .aj-task-modal { width:min(560px,100%); max-height:calc(100vh - 40px); overflow:auto; padding:24px; box-shadow:0 20px 60px rgba(18,23,28,.24); }
+    .aj-modal-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
+    .aj-modal-title-row h3 { font-size:20px; }
+    .aj-modal-title-row p { color:var(--muted); font-size:12.5px; margin:4px 0 0; }
+    .aj-modal-close { border:0; border-radius:7px; background:var(--surface); color:var(--muted); width:30px; height:30px; display:grid; place-items:center; cursor:pointer; }
+    .aj-task-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .aj-task-field { display:grid; gap:6px; }
+    .aj-task-field.full { grid-column:1 / -1; }
+    .aj-task-field label { font-size:12px; color:var(--muted); font-weight:600; }
+    .aj-modal-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:20px; margin-top:20px; border-top:1px solid var(--border); }
+
     @media (max-width:860px){
       .aj-side{ width:66px; } .aj-brand-name,.aj-nav-label,.aj-item span:not(.hot),.aj-side-foot small,.aj-side-foot b{ display:none; }
       .aj-item{ justify-content:center; } .aj-search{ display:none; }
+      .aj-task-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .aj-task-toolbar { padding:12px; }
+    }
+    @media (max-width:600px){
+      .aj-view { padding:18px 14px; }
+      .aj-tasks-head { align-items:flex-start; flex-direction:column; margin-bottom:18px; }
+      .aj-tasks-title { font-size:27px; }
+      .aj-task-add { width:100%; justify-content:center; }
+      .aj-task-stats { gap:10px; }
+      .aj-task-stat { min-height:96px; padding:13px; }
+      .aj-task-stat-number { margin-top:12px; font-size:26px; }
+      .aj-task-search { flex-basis:100%; }
+      .aj-task-filter { min-width:calc(50% - 5px); }
+      .aj-task-form-grid { grid-template-columns:1fr; }
+      .aj-task-field.full { grid-column:auto; }
+      .aj-task-modal { padding:20px; }
     }
   `}</style>
 );
@@ -494,10 +578,10 @@ export default function App() {
   );
 }
 
-const ActiveUser = ({ user, currentUser }) => {
+const ActiveUser = ({ user }) => {
   const [users, setUsers] = useState([]);
   const [editing, setEditing] = useState(null);
-  const isAdmin = currentUser?.role === "admin";
+  const isAdmin = user?.role === "admin";
   useEffect(() => {
     if (!user) return;
     const token = localStorage.getItem("token");
@@ -538,13 +622,11 @@ const ActiveUser = ({ user, currentUser }) => {
                 <td>{u.email}</td>
                 <td><span className="aj-chip" style={{ background: "var(--surface)", color: "var(--muted)" }}>{u.role}</span></td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                  {/* {(isAdmin || u.id === currentUser?.id) && ( */}
-                  <>
+                  {isAdmin && (
                     <button onClick={() => setEditing(u)} title="Edit" style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--muted)", marginRight: 4 }}>
                       <SlidersHorizontal size={15} />
                     </button>
-                  </>
-                  {/* )}  */}
+                  )}
                 </td>
               </tr>
             ))}
@@ -771,250 +853,125 @@ function Projects({ currentUser }) {
 
 function Tasks({ users, currentUser }) {
   const safeUsers = Array.isArray(users) ? users : [];
-  const [tasks, setTasks] = useState([]);   // start empty instead of hardcoded
+  const [tasks, setTasks] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [query, setQuery] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
+  const [dueFilter, setDueFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [text, setText] = useState("");
   const [owner, setOwner] = useState(1);
   const [date, setDate] = useState(() => upcomingDates()[0].value);
-  const [projects, setProjects] = useState([]);          // the list
-  const [projectId, setProjectId] = useState("");        // the chosen one's id
+  const [projects, setProjects] = useState([]);
+  const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState("Med");
-  // const [users, setUsers] = useState([]);
-  const isAdmin = currentUser?.role === "admin";
   const [editing, setEditing] = useState(null);
-  // Admins see everything; members see only tasks assigned to them
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const isAdmin = currentUser?.role === "admin";
   const visibleTasks = isAdmin ? tasks : tasks.filter((t) => t.who === currentUser?.id);
-  const filtered = visibleTasks.filter((t) => filter === "All" || t.status === filter);
-  const [confirmDelete, setConfirmDelete] = useState(null);   // task pending deletion, or null
-
-  const projectName = (id) => {
-    const p = projects.find((pr) => pr.id === id);
-    return p ? p.name : null;
+  const dueOptions = [...new Set(visibleTasks.map((t) => t.due).filter(Boolean))];
+  const counts = {
+    All: visibleTasks.length,
+    "To do": visibleTasks.filter((t) => t.status === "To do").length,
+    "In progress": visibleTasks.filter((t) => t.status === "In progress").length,
+    Done: visibleTasks.filter((t) => t.status === "Done").length,
   };
-  // Fetch tasks from the backend once, when the page first loads
+  const filtered = visibleTasks.filter((t) => {
+    const matchesQuery = t.title.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesQuery
+      && (filter === "All" || t.status === filter)
+      && (!ownerFilter || String(t.who) === ownerFilter)
+      && (!projectFilter || String(t.project_id || "") === projectFilter)
+      && (!dueFilter || t.due === dueFilter)
+      && (!priorityFilter || t.prio === priorityFilter);
+  });
+  const projectName = (id) => projects.find((project) => project.id === id)?.name;
+  const userName = (id) => safeUsers.find((member) => member.id === id)?.name || "Unassigned";
+
   useEffect(() => {
-    api("/api/tasks")
-      .then((res) => res.json())
-      .then((data) => setTasks(data))
+    api("/api/tasks").then((res) => res.json()).then((data) => setTasks(data))
       .catch((err) => console.error("Could not load tasks:", err));
   }, []);
-
   useEffect(() => {
-    api("/api/projects")
-      .then((res) => res.json())
-      .then((data) => setProjects(Array.isArray(data) ? data : []))
+    api("/api/projects").then((res) => res.json()).then((data) => setProjects(Array.isArray(data) ? data : []))
       .catch((err) => console.error("Could not load projects:", err));
   }, []);
 
   const add = () => {
     if (!text.trim()) return;
-
-    api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        title: text.trim(), who: owner, prio: priority, status: "To do", due: date,
-        project_id: projectId ? Number(projectId) : null,   // ← the chosen project
-      }),
-    })
+    api("/api/tasks", { method: "POST", body: JSON.stringify({
+      title: text.trim(), who: owner, prio: priority, status: "To do", due: date,
+      project_id: projectId ? Number(projectId) : null,
+    }) })
       .then((res) => res.json())
-      .then((saved) => setTasks([saved, ...tasks]))
+      .then((saved) => { setTasks([saved, ...tasks]); setText(""); setIsCreateOpen(false); })
       .catch((err) => console.error("Could not save task:", err));
-
-    setText("");
   };
   const cycle = (id) => {
-    const task = tasks.find((t) => t.id === id);
-    const nextStatus =
-      task.status === "To do" ? "In progress"
-        : task.status === "In progress" ? "Done"
-          : "To do";
-
-    api(`/api/tasks/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ status: nextStatus }),
-    })
-      .then((res) => res.json())
-      .then((updated) => setTasks(tasks.map((t) => (t.id === id ? updated : t))))
+    const task = tasks.find((item) => item.id === id);
+    const nextStatus = task.status === "To do" ? "In progress" : task.status === "In progress" ? "Done" : "To do";
+    api(`/api/tasks/${id}`, { method: "PUT", body: JSON.stringify({ status: nextStatus }) })
+      .then((res) => res.json()).then((updated) => setTasks(tasks.map((item) => item.id === id ? updated : item)))
       .catch((err) => console.error("Could not update task:", err));
   };
-  const remove = (id) => {
-    api(`/api/tasks/${id}`, { method: "DELETE" })
-      .then((res) => res.json())
-      .then(() => setTasks(tasks.filter((t) => t.id !== id)))
-      .catch((err) => console.error("Could not delete task:", err));
-  };
-
+  const remove = (id) => api(`/api/tasks/${id}`, { method: "DELETE" }).then((res) => res.json())
+    .then(() => setTasks(tasks.filter((task) => task.id !== id)))
+    .catch((err) => console.error("Could not delete task:", err));
   const saveEdit = () => {
-    api(`/api/tasks/${editing.id}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        title: editing.title, who: editing.who, prio: editing.prio,
-        due: editing.due, status: editing.status,
-      }),
-    })
-      .then((res) => res.json())
-      .then((updated) => {
-        setTasks(tasks.map((t) => (t.id === updated.id ? updated : t)));
-        setEditing(null);   // close the modal
-      })
+    api(`/api/tasks/${editing.id}`, { method: "PUT", body: JSON.stringify({
+      title: editing.title, who: editing.who, prio: editing.prio, due: editing.due, status: editing.status,
+    }) })
+      .then((res) => res.json()).then((updated) => { setTasks(tasks.map((task) => task.id === updated.id ? updated : task)); setEditing(null); })
       .catch((err) => console.error("Could not save edit:", err));
   };
+  const clearFilters = () => { setFilter("All"); setQuery(""); setOwnerFilter(""); setProjectFilter(""); setDueFilter(""); setPriorityFilter(""); };
+  const taskStats = [
+    { label: "All Tasks", value: counts.All, icon: CheckSquare, tone: "var(--teal)", soft: "var(--teal-soft)", note: "Across your workspace" },
+    { label: "To Do", value: counts["To do"], icon: Circle, tone: "var(--muted)", soft: "var(--surface)", note: "Ready to be picked up" },
+    { label: "In Progress", value: counts["In progress"], icon: Clock, tone: "var(--amber)", soft: "var(--amber-soft)", note: "Work currently underway" },
+    { label: "Done", value: counts.Done, icon: Check, tone: "var(--teal)", soft: "var(--teal-soft)", note: "Completed work" },
+  ];
+
   return (
-    <div style={{ maxWidth: 15000, margin: "0 auto" }}>
-      <Head title="Tasks" sub="Organize and track everything the team is working on." />
-      {isAdmin && (
-        <div className="aj-card aj-pad" style={{ marginBottom: 16 }}>
-          <div className="aj-row">
-            <input className="aj-input" style={{ flex: 1 }} placeholder="Add a task…" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-            <button className="aj-btn" onClick={add}><Plus size={15} />Add task</button>
-            <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Assigned to:</label>
-            <select className="aj-select" value={owner} onChange={(e) => setOwner(Number(e.target.value))}>
-              {safeUsers.map((member) => (
-                <option key={member.id} value={member.id}>{member.name}</option>
-              ))}
-            </select>
-            <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Project:</label>
-            <select className="aj-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">Select a project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Due Date:</label>
-            <select className="aj-select" value={date} onChange={(e) => setDate(e.target.value)}>
-              {upcomingDates().map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
-            <label style={{ fontSize: 13, marginLeft: 12, color: "var(--muted)" }}>Priority:</label>
-            <select className="aj-select" value={priority} onChange={(e) => setPriority(e.target.value)}>
-              <option value="High">High</option>
-              <option value="Med">Med</option>
-              <option value="Low">Low</option>
-            </select>
-          </div>
-          <div className="aj-row" style={{ marginTop: 14, gap: 8 }}>
-            {["All", "To do", "In progress", "Done"].map((f) => (
-              <button key={f} className={"aj-btn sm " + (filter === f ? "" : "ghost")} onClick={() => setFilter(f)}>{f}</button>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="aj-card">
-        <table className="aj-table">
-          <thead>
-            <tr>
-              <th style={{ width: 30 }}>
-              </th>
-              <th>Task</th>
-              {isAdmin && (<th>Owner</th>)}
-              <th>Priority</th>
-              <th>Status</th>
-              <th>Due</th>
-              <th>Project Name</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((t) => {
-              const pc = prioColor(t.prio), sc = statusColor(t.status);
-              return (
-                <tr key={t.id}>
-                  <td><button onClick={() => cycle(t.id)} style={{ width: 20, height: 20, borderRadius: 6, border: "1.5px solid var(--border-strong)", background: t.status === "Done" ? "var(--teal)" : "transparent", cursor: "pointer", display: "grid", placeItems: "center" }}>{t.status === "Done" && <Check size={13} color="#fff" />}</button></td>
-                  <td style={{ fontWeight: 500, textDecoration: t.status === "Done" ? "line-through" : "none", color: t.status === "Done" ? "var(--muted)" : "var(--text)" }}>{t.title}</td>
-                  {isAdmin && (<td><Avatar id={t.who} users={safeUsers} /></td>)}
-                  <td><span className="aj-chip" style={{ color: pc.c, background: pc.b }}>{t.prio}</span></td>
-                  <td><span className="aj-chip" style={{ color: sc.c, background: sc.b }}>{t.status}</span></td>
-                  <td className="mono aj-muted" style={{ fontSize: 12 }}>{t.due}</td>
-                  <td>
-                    {projectName(t.project_id) ? (
-                      <span className="aj-chip" style={{ color: "var(--violet)", background: "#EDEAFB" }}>
-                        {projectName(t.project_id)}
-                      </span>
-                    ) : (
-                      <span className="aj-muted" style={{ fontSize: 12 }}>—</span>
-                    )}
-                  </td>
-
-                  {/* <td style={{ textAlign: "right" }}>
-                    {isAdmin && (
-                      <button onClick={() => remove(t.id)} style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--faint)" }}><X size={15} /></button>
-                    )}
-                  </td> */}
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    {(isAdmin || t.created_by === currentUser?.id) && (
-                      <>
-                        <button onClick={() => setEditing(t)} title="Edit" style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--muted)", marginRight: 4 }}>
-                          <SlidersHorizontal size={15} />
-                        </button>
-                        <button onClick={() => setConfirmDelete(t)} title="Delete" style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--faint)" }}>
-                          <X size={15} />
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {filtered.length === 0 && <div className="aj-empty">No tasks here. Add one above to get started.</div>}
+    <section className="aj-tasks">
+      <div className="aj-tasks-head">
+        <div><div className="aj-tasks-kicker">Workspace / Tasks</div><h1 className="aj-tasks-title">Tasks</h1><p className="aj-tasks-sub">Organize and track everything the team is working on.</p></div>
+        {isAdmin && <button className="aj-btn aj-task-add" onClick={() => setIsCreateOpen(true)}><Plus size={16} /> Add Task</button>}
       </div>
-      {editing && (
-        <div onClick={() => setEditing(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,23,28,.5)", display: "grid", placeItems: "center", zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} className="aj-card aj-pad" style={{ width: 420, padding: 24 }}>
-            <h3 style={{ marginBottom: 16 }}>Edit task</h3>
 
-            <label style={{ fontSize: 12, color: "var(--muted)" }}>Title</label>
-            <input className="aj-input" style={{ width: "100%", marginBottom: 12 }}
-              value={editing.title}
-              onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
+      <div className="aj-task-stats">
+        {taskStats.map(({ label, value, icon: Icon, tone, soft, note }) => <div key={label} className="aj-card aj-task-stat" style={{ "--task-tone": tone, "--task-tone-soft": soft }}><div className="aj-task-stat-label"><span>{label}</span><span className="aj-task-stat-icon"><Icon size={15} /></span></div><div className="aj-task-stat-number">{value}</div><div className="aj-task-stat-note">{note}</div></div>)}
+      </div>
 
-            <label style={{ fontSize: 12, color: "var(--muted)" }}>Assigned to</label>
-            <select className="aj-select" style={{ width: "100%", marginBottom: 12 }}
-              value={editing.who}
-              onChange={(e) => setEditing({ ...editing, who: Number(e.target.value) })}>
-              {safeUsers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-
-            <label style={{ fontSize: 12, color: "var(--muted)" }}>Priority</label>
-            <select className="aj-select" style={{ width: "100%", marginBottom: 12 }}
-              value={editing.prio}
-              onChange={(e) => setEditing({ ...editing, prio: e.target.value })}>
-              <option value="High">High</option><option value="Med">Med</option><option value="Low">Low</option>
-            </select>
-
-            <label style={{ fontSize: 12, color: "var(--muted)" }}>Due date</label>
-            <select className="aj-select" style={{ width: "100%", marginBottom: 20 }}
-              value={editing.due}
-              onChange={(e) => setEditing({ ...editing, due: e.target.value })}>
-              {upcomingDates().map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="aj-btn ghost" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="aj-btn" onClick={saveEdit}>Save changes</button>
-            </div>
-          </div>
+      {isAdmin && <div className="aj-card aj-task-toolbar">
+        <div className="aj-task-filters">
+          <label className="aj-task-search"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks..." aria-label="Search tasks" /></label>
+          <select className="aj-select aj-task-filter" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}><option value="">Assigned to: Everyone</option>{safeUsers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>
+          <select className="aj-select aj-task-filter" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}><option value="">Project: All</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+          <select className="aj-select aj-task-filter" value={dueFilter} onChange={(e) => setDueFilter(e.target.value)}><option value="">Due date: All</option>{dueOptions.map((due) => <option key={due} value={due}>{formatTaskDue(due)}</option>)}</select>
+          <select className="aj-select aj-task-filter" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}><option value="">Priority: All</option><option value="High">High</option><option value="Med">Medium</option><option value="Low">Low</option></select>
         </div>
-      )}
-      {confirmDelete && (
-        <div onClick={() => setConfirmDelete(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,23,28,.5)", display: "grid", placeItems: "center", zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} className="aj-card aj-pad" style={{ width: 360, padding: 24 }}>
-            <h3 style={{ marginBottom: 8 }}>Delete task?</h3>
-            <p className="aj-muted" style={{ fontSize: 13.5, marginBottom: 20 }}>
-              "{confirmDelete.title}" will be permanently deleted. This can't be undone.
-            </p>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="aj-btn ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
-              <button className="aj-btn" style={{ background: "var(--rose)" }}
-                onClick={() => { remove(confirmDelete.id); setConfirmDelete(null); }}>
-                Delete
-              </button>
-            </div>
-          </div>
+        <div className="aj-task-tabs" role="tablist" aria-label="Task status">
+          {["All", "To do", "In progress", "Done"].map((status) => <button key={status} className={`aj-task-tab ${filter === status ? "on" : ""}`} onClick={() => setFilter(status)}>{status}<span className="aj-task-tab-count">{counts[status]}</span></button>)}
         </div>
-      )}
-    </div>
+      </div>}
+
+      <div className="aj-card aj-task-table-card">
+        {filtered.length ? <div className="aj-task-table-wrap"><table className="aj-task-table"><thead><tr><th>Task</th><th>Owner</th><th>Priority</th><th>Status</th><th>Due Date</th><th>Project</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead><tbody>
+          {filtered.map((task) => {
+            const pc = prioColor(task.prio); const sc = statusColor(task.status); const canManage = isAdmin || task.created_by === currentUser?.id;
+            return <tr key={task.id}><td><div className={`aj-task-name ${task.status === "Done" ? "done" : ""}`}><button className={`aj-task-check ${task.status === "Done" ? "done" : ""}`} onClick={() => cycle(task.id)} title="Change task status" aria-label={`Change status for ${task.title}`}>{task.status === "Done" && <Check size={13} color="#fff" />}</button><span>{task.title}</span></div></td><td><div className="aj-task-owner"><Avatar id={task.who} users={safeUsers} size={28} /><span className="aj-task-owner-name">{userName(task.who)}</span></div></td><td><span className="aj-chip" style={{ color: pc.c, background: pc.b }}>{task.prio}</span></td><td><span className="aj-chip" style={{ color: sc.c, background: sc.b }}>{task.status}</span></td><td className="mono aj-muted" style={{ fontSize: 11.5 }}>{formatTaskDue(task.due)}</td><td>{projectName(task.project_id) ? <span className="aj-chip aj-task-project">{projectName(task.project_id)}</span> : <span className="aj-muted" style={{ fontSize: 12 }}>—</span>}</td><td><div className="aj-task-actions">{canManage && <><button className="aj-task-action" title="Edit task" aria-label={`Edit ${task.title}`} onClick={() => setEditing(task)}><SlidersHorizontal size={15} /></button><button className="aj-task-action delete" title="Delete task" aria-label={`Delete ${task.title}`} onClick={() => setConfirmDelete(task)}><X size={16} /></button></>}</div></td></tr>;
+          })}
+        </tbody></table></div> : <div className="aj-task-empty"><div className="aj-task-empty-icon"><CheckSquare size={22} /></div><h4>No matching tasks</h4><p>{tasks.length ? "Try changing your search or filters to see more tasks." : "Create a task to start organizing your team’s work in one place."}</p>{(query || ownerFilter || projectFilter || dueFilter || priorityFilter || filter !== "All") && <button className="aj-btn ghost sm" onClick={clearFilters}>Clear filters</button>}{!tasks.length && isAdmin && <button className="aj-btn sm" onClick={() => setIsCreateOpen(true)}><Plus size={14} /> Add Task</button>}</div>}
+      </div>
+
+      {isCreateOpen && <div className="aj-modal-backdrop" onClick={() => setIsCreateOpen(false)}><div className="aj-card aj-task-modal" onClick={(e) => e.stopPropagation()}><div className="aj-modal-title-row"><div><h3>Create a task</h3><p>Add the details and assign it to a teammate.</p></div><button className="aj-modal-close" onClick={() => setIsCreateOpen(false)} aria-label="Close"><X size={16} /></button></div><div className="aj-task-form-grid"><div className="aj-task-field full"><label htmlFor="task-title">Task title</label><input id="task-title" className="aj-input" autoFocus value={text} placeholder="What needs to be done?" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} /></div><div className="aj-task-field"><label>Assigned to</label><select className="aj-select" value={owner} onChange={(e) => setOwner(Number(e.target.value))}>{safeUsers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></div><div className="aj-task-field"><label>Project</label><select className="aj-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="">No project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></div><div className="aj-task-field"><label>Due date</label><select className="aj-select" value={date} onChange={(e) => setDate(e.target.value)}>{upcomingDates().map((due) => <option key={due.value} value={due.value}>{due.label}</option>)}</select></div><div className="aj-task-field"><label>Priority</label><select className="aj-select" value={priority} onChange={(e) => setPriority(e.target.value)}><option value="High">High</option><option value="Med">Medium</option><option value="Low">Low</option></select></div></div><div className="aj-modal-actions"><button className="aj-btn ghost" onClick={() => setIsCreateOpen(false)}>Cancel</button><button className="aj-btn" onClick={add}><Plus size={15} /> Create task</button></div></div></div>}
+
+      {editing && <div className="aj-modal-backdrop" onClick={() => setEditing(null)}><div className="aj-card aj-task-modal" onClick={(e) => e.stopPropagation()}><div className="aj-modal-title-row"><div><h3>Edit task</h3><p>Update the task details below.</p></div><button className="aj-modal-close" onClick={() => setEditing(null)} aria-label="Close"><X size={16} /></button></div><div className="aj-task-form-grid"><div className="aj-task-field full"><label>Title</label><input className="aj-input" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></div><div className="aj-task-field"><label>Assigned to</label><select className="aj-select" value={editing.who} onChange={(e) => setEditing({ ...editing, who: Number(e.target.value) })}>{safeUsers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></div><div className="aj-task-field"><label>Priority</label><select className="aj-select" value={editing.prio} onChange={(e) => setEditing({ ...editing, prio: e.target.value })}><option value="High">High</option><option value="Med">Medium</option><option value="Low">Low</option></select></div><div className="aj-task-field full"><label>Due date</label><select className="aj-select" value={editing.due} onChange={(e) => setEditing({ ...editing, due: e.target.value })}>{upcomingDates().map((due) => <option key={due.value} value={due.value}>{due.label}</option>)}</select></div></div><div className="aj-modal-actions"><button className="aj-btn ghost" onClick={() => setEditing(null)}>Cancel</button><button className="aj-btn" onClick={saveEdit}>Save changes</button></div></div></div>}
+      {confirmDelete && <div className="aj-modal-backdrop" onClick={() => setConfirmDelete(null)}><div className="aj-card aj-task-modal" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}><div className="aj-modal-title-row"><div><h3>Delete task?</h3><p>This action cannot be undone.</p></div><button className="aj-modal-close" onClick={() => setConfirmDelete(null)} aria-label="Close"><X size={16} /></button></div><p className="aj-muted" style={{ fontSize: 13.5, margin: 0 }}>“{confirmDelete.title}” will be permanently deleted.</p><div className="aj-modal-actions"><button className="aj-btn ghost" onClick={() => setConfirmDelete(null)}>Cancel</button><button className="aj-btn" style={{ background: "var(--rose)" }} onClick={() => { remove(confirmDelete.id); setConfirmDelete(null); }}>Delete</button></div></div></div>}
+    </section>
   );
 }
 
